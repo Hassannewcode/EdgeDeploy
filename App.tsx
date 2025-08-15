@@ -7,6 +7,8 @@ import {
     fetchRepos,
     triggerDeployment,
     getWorkflowRuns,
+    getWorkflowJobs,
+    getJobLogs,
     forkRepo,
 } from './services/githubService';
 import { explainCode } from './services/geminiService';
@@ -174,20 +176,6 @@ const TemplateModal: React.FC<{
             description: 'A Next.js template for building a full-featured, hackable AI chatbot with the Gemini API.',
             icon: <SparklesIcon className="w-8 h-8 text-primary" />
         },
-        {
-            owner: 'vercel',
-            repo: 'next-template',
-            name: 'Next.js Starter',
-            description: 'A minimal, yet powerful Next.js starter template for new projects.',
-            icon: <NextjsIcon className="w-8 h-8" />
-        },
-        {
-            owner: 'vercel',
-            repo: 'commerce',
-            name: 'Next.js Commerce',
-            description: 'The all-in-one starter kit for high-performance e-commerce sites.',
-            icon: <CommerceIcon className="w-8 h-8 text-foreground" />
-        }
     ];
 
     const handleDeploy = (owner: string, repo: string) => {
@@ -322,11 +310,12 @@ const App: React.FC = () => {
 
     const [deploymentStatus, setDeploymentStatus] = useState<DeploymentStatus>(DeploymentStatus.IDLE);
     const [workflowRuns, setWorkflowRuns] = useState<GithubWorkflowRun[]>([]);
+    const [deploymentLogs, setDeploymentLogs] = useState<string | null>(null);
     const [liveDeploymentUrl, setLiveDeploymentUrl] = useState<string | null>(null);
 
     const deploymentPollTimer = useRef<number | null>(null);
     
-    const isDeploying = deploymentStatus === DeploymentStatus.TRIGGERED || workflowRuns.some(run => run.status !== 'completed');
+    const isDeploying = deploymentStatus === DeploymentStatus.TRIGGERED || deploymentStatus === DeploymentStatus.IN_PROGRESS;
 
     useEffect(() => {
         document.documentElement.classList.remove('light', 'dark');
@@ -419,6 +408,7 @@ const App: React.FC = () => {
         setDeploymentStatus(DeploymentStatus.IDLE);
         setWorkflowRuns([]);
         setLiveDeploymentUrl(null);
+        setDeploymentLogs(null);
         setCurrentView(View.DEPLOYMENTS);
         
         setLoading('branches', true);
@@ -454,6 +444,7 @@ const App: React.FC = () => {
         setSelectedFile(null);
         setFileContent(null);
         setLiveDeploymentUrl(null);
+        setDeploymentLogs(null);
         setLoading('tree', true);
         setLoading('runs', true);
         setError(null);
@@ -534,9 +525,23 @@ const App: React.FC = () => {
 
             const inProgressRun = workflow_runs.find(run => run.status === 'in_progress' || run.status === 'queued');
 
-            if (!inProgressRun) {
+            if (inProgressRun) {
+                setDeploymentStatus(DeploymentStatus.IN_PROGRESS);
+                 try {
+                    const { jobs } = await getWorkflowJobs(githubToken, owner, repo, inProgressRun.id);
+                    const buildJob = jobs.find(job => job.status === 'in_progress') || jobs[0];
+                    if (buildJob) {
+                        const logs = await getJobLogs(githubToken, owner, repo, buildJob.id);
+                        setDeploymentLogs(logs);
+                    }
+                } catch (logError) {
+                    console.error("Could not fetch job logs:", logError);
+                    setDeploymentLogs(prevLogs => prevLogs || "Waiting for build logs...");
+                }
+            } else {
                 cleanupPolling();
                 setDeploymentStatus(DeploymentStatus.IDLE);
+                setDeploymentLogs(null);
 
                 const latestSuccess = workflow_runs.find(r => r.conclusion === 'success');
                 if (latestSuccess) {
@@ -549,12 +554,11 @@ const App: React.FC = () => {
                          // index.html not found, that's okay
                     }
                 }
-            } else {
-                 setDeploymentStatus(DeploymentStatus.IN_PROGRESS);
             }
         } catch(err) {
             setError(err instanceof Error ? err.message : "Error polling deployment status.");
             setDeploymentStatus(DeploymentStatus.FAILED);
+            setDeploymentLogs(null);
             cleanupPolling();
         }
     }, [githubToken, owner, repo, selectedBranch]);
@@ -593,6 +597,7 @@ const App: React.FC = () => {
         cleanupPolling();
         setDeploymentStatus(DeploymentStatus.TRIGGERED);
         setError(null);
+        setDeploymentLogs("Triggering deployment workflow...");
         setCurrentView(View.DEPLOYMENTS);
 
         try {
@@ -611,6 +616,8 @@ const App: React.FC = () => {
                 return <DeploymentsView 
                     runs={workflowRuns}
                     liveDeploymentUrl={liveDeploymentUrl}
+                    deploymentStatus={deploymentStatus}
+                    deploymentLogs={deploymentLogs}
                 />;
             case View.SOURCE:
                  return (
