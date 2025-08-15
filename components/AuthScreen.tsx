@@ -58,11 +58,24 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onConnect, isLoading, er
             </form>
         </div>
         
-        <div className="mt-6 text-xs text-muted-foreground text-center">
-             <a href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=EdgeDeploy" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
-                Generate a new token with `repo` and `workflow` scopes &rarr;
-              </a>
-             <p className="mt-2">Your token is stored only in your browser's local storage.</p>
+        <div className="mt-6 border border-border rounded-lg p-6 bg-card/50">
+            <h3 className="text-md font-semibold text-foreground mb-3">How to get a GitHub Token</h3>
+            <ol className="list-decimal list-inside space-y-3 text-sm text-muted-foreground">
+                <li>
+                    <a href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=EdgeDeploy" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                        Generate a new personal access token
+                    </a> on GitHub.
+                </li>
+                <li>
+                    Ensure the <code className="bg-muted text-muted-foreground px-1.5 py-0.5 rounded-sm text-xs font-mono">repo</code> and <code className="bg-muted text-muted-foreground px-1.5 py-0.5 rounded-sm text-xs font-mono">workflow</code> scopes are selected. This allows EdgeDeploy to access your projects and trigger deployments.
+                </li>
+                <li>
+                    Copy the generated token and paste it into the field above.
+                </li>
+            </ol>
+             <p className="mt-4 text-xs text-muted-foreground">
+                Your token is stored securely in your browser's local storage and is never sent to our servers.
+             </p>
         </div>
       </div>
     </div>

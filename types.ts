@@ -61,7 +61,6 @@ export interface GithubRepo {
     };
     private: boolean;
     updated_at: string;
-    html_url: string;
 }
 
 export interface GithubWorkflowRun {
