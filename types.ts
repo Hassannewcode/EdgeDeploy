@@ -56,12 +56,12 @@ export interface GithubRepo {
     id: number;
     name: string;
     full_name: string;
-    html_url: string;
     owner: {
         login: string;
     };
     private: boolean;
     updated_at: string;
+    html_url: string;
 }
 
 export interface GithubWorkflowRun {

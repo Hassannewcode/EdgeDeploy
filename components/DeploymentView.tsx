@@ -4,7 +4,7 @@ import { ExternalLinkIcon, CheckCircleIcon, XCircleIcon, ClockIcon, SpinnerIcon 
 
 interface DeploymentsViewProps {
   runs: GithubWorkflowRun[];
-  previewUrl: string | null;
+  liveDeploymentUrl: string | null;
 }
 
 const Card: React.FC<{children: React.ReactNode, className?: string}> = ({ children, className }) => (
@@ -58,7 +58,7 @@ const getStatusInfo = (run: GithubWorkflowRun) => {
 
 export const DeploymentsView: React.FC<DeploymentsViewProps> = ({
   runs,
-  previewUrl,
+  liveDeploymentUrl,
 }) => {
   
   const latestSuccessfulRunId = runs.find(r => r.status === 'completed' && r.conclusion === 'success')?.id;
@@ -90,9 +90,9 @@ export const DeploymentsView: React.FC<DeploymentsViewProps> = ({
                                 </a>
                             </div>
                             <div className="col-span-1 flex justify-end">
-                               {isLatestSuccess && previewUrl && (
-                                    <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="bg-secondary text-secondary-foreground hover:bg-accent text-xs font-semibold px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5">
-                                        Visit Preview <ExternalLinkIcon className="w-3.5 h-3.5" />
+                               {isLatestSuccess && liveDeploymentUrl && (
+                                    <a href={liveDeploymentUrl} target="_blank" rel="noopener noreferrer" className="bg-secondary text-secondary-foreground hover:bg-accent text-xs font-semibold px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5">
+                                        Visit <ExternalLinkIcon className="w-3.5 h-3.5" />
                                     </a>
                                )}
                             </div>
