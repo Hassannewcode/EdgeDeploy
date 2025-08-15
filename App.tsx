@@ -312,8 +312,10 @@ const App: React.FC = () => {
     const [workflowRuns, setWorkflowRuns] = useState<GithubWorkflowRun[]>([]);
     const [deploymentLogs, setDeploymentLogs] = useState<string | null>(null);
     const [liveDeploymentUrl, setLiveDeploymentUrl] = useState<string | null>(null);
+    const [deploymentTriggerTime, setDeploymentTriggerTime] = useState<Date | null>(null);
 
     const deploymentPollTimer = useRef<number | null>(null);
+    const pollAttempts = useRef(0);
     
     const isDeploying = deploymentStatus === DeploymentStatus.TRIGGERED || deploymentStatus === DeploymentStatus.IN_PROGRESS;
 
@@ -517,51 +519,63 @@ const App: React.FC = () => {
     }, []);
 
     const pollDeploymentStatus = useCallback(async () => {
-        if (!githubToken || !owner || !repo || !selectedBranch) return;
+        if (!githubToken || !owner || !repo || !selectedBranch || !deploymentTriggerTime) return;
+
+        pollAttempts.current += 1;
 
         try {
             const { workflow_runs } = await getWorkflowRuns(githubToken, owner, repo, selectedBranch);
             setWorkflowRuns(workflow_runs);
 
-            const inProgressRun = workflow_runs.find(run => run.status === 'in_progress' || run.status === 'queued');
-
-            if (inProgressRun) {
-                setDeploymentStatus(DeploymentStatus.IN_PROGRESS);
-                 try {
-                    const { jobs } = await getWorkflowJobs(githubToken, owner, repo, inProgressRun.id);
-                    const buildJob = jobs.find(job => job.status === 'in_progress') || jobs[0];
-                    if (buildJob) {
-                        const logs = await getJobLogs(githubToken, owner, repo, buildJob.id);
-                        setDeploymentLogs(logs);
+            const relevantRun = workflow_runs.find(run => new Date(run.created_at) >= deploymentTriggerTime);
+            
+            if (relevantRun) {
+                pollAttempts.current = 0; // Reset counter
+                if (relevantRun.status === 'in_progress' || relevantRun.status === 'queued') {
+                    setDeploymentStatus(DeploymentStatus.IN_PROGRESS);
+                    try {
+                        const { jobs } = await getWorkflowJobs(githubToken, owner, repo, relevantRun.id);
+                        const buildJob = jobs.find(job => job.status === 'in_progress') || jobs[0];
+                        if (buildJob) {
+                            const logs = await getJobLogs(githubToken, owner, repo, buildJob.id);
+                            setDeploymentLogs(logs);
+                        }
+                    } catch (logError) {
+                        console.error("Could not fetch job logs:", logError);
+                        setDeploymentLogs(prev => prev || "Waiting for build logs...");
                     }
-                } catch (logError) {
-                    console.error("Could not fetch job logs:", logError);
-                    setDeploymentLogs(prevLogs => prevLogs || "Waiting for build logs...");
+                } else { // It's completed
+                    cleanupPolling();
+                    setDeploymentStatus(DeploymentStatus.IDLE);
+                    setDeploymentLogs(null);
+                    setDeploymentTriggerTime(null);
+                    
+                    if (relevantRun.conclusion === 'success') {
+                        try {
+                            const htmlContent = await fetchFileContent(githubToken, owner, repo, 'index.html', selectedBranch);
+                            const encodedContent = btoa(htmlContent);
+                            const dataUrl = `data:text/html;base64,${encodedContent}`;
+                            setLiveDeploymentUrl(dataUrl);
+                        } catch (e) {
+                            setLiveDeploymentUrl(null); // This is fine, preview is optional
+                        }
+                    }
                 }
-            } else {
+            } else if (pollAttempts.current > 4) { // Timeout after ~20s
                 cleanupPolling();
-                setDeploymentStatus(DeploymentStatus.IDLE);
-                setDeploymentLogs(null);
-
-                const latestSuccess = workflow_runs.find(r => r.conclusion === 'success');
-                if (latestSuccess) {
-                     try {
-                        const htmlContent = await fetchFileContent(githubToken, owner, repo, 'index.html', selectedBranch);
-                        const encodedContent = btoa(htmlContent);
-                        const dataUrl = `data:text/html;base64,${encodedContent}`;
-                        setLiveDeploymentUrl(dataUrl);
-                    } catch (e) {
-                         // index.html not found, that's okay
-                    }
-                }
+                setDeploymentStatus(DeploymentStatus.FAILED);
+                setDeploymentTriggerTime(null);
+                setError("NO_WORKFLOW_DETECTED"); // Special error code
             }
-        } catch(err) {
+        } catch (err) {
             setError(err instanceof Error ? err.message : "Error polling deployment status.");
             setDeploymentStatus(DeploymentStatus.FAILED);
             setDeploymentLogs(null);
             cleanupPolling();
+            setDeploymentTriggerTime(null);
         }
-    }, [githubToken, owner, repo, selectedBranch]);
+    }, [githubToken, owner, repo, selectedBranch, deploymentTriggerTime]);
+
 
     const handleDeployTemplate = async (templateOwner: string, templateRepo: string) => {
         if (!githubToken) return;
@@ -595,10 +609,12 @@ const App: React.FC = () => {
         if (!githubToken || !owner || !repo || !selectedBranch) return;
         
         cleanupPolling();
-        setDeploymentStatus(DeploymentStatus.TRIGGERED);
         setError(null);
+        setDeploymentStatus(DeploymentStatus.TRIGGERED);
         setDeploymentLogs("Triggering deployment workflow...");
         setCurrentView(View.DEPLOYMENTS);
+        setDeploymentTriggerTime(new Date());
+        pollAttempts.current = 0;
 
         try {
             await triggerDeployment(githubToken, owner, repo, selectedBranch);
@@ -607,6 +623,7 @@ const App: React.FC = () => {
         } catch(err) {
              setError(err instanceof Error ? err.message : "Unknown error");
              setDeploymentStatus(DeploymentStatus.FAILED);
+             setDeploymentTriggerTime(null);
         }
     };
 
@@ -618,6 +635,7 @@ const App: React.FC = () => {
                     liveDeploymentUrl={liveDeploymentUrl}
                     deploymentStatus={deploymentStatus}
                     deploymentLogs={deploymentLogs}
+                    error={error}
                 />;
             case View.SOURCE:
                  return (
@@ -814,7 +832,7 @@ const App: React.FC = () => {
             </header>
             
             <main className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
-                {error && (
+                {error && error !== "NO_WORKFLOW_DETECTED" && (
                     <div className="bg-red-500/10 border border-red-500/20 text-red-300 px-4 py-2 mb-6 rounded-md text-sm">
                         <strong>Error:</strong> {error}
                     </div>

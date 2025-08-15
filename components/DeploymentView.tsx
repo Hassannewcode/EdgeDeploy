@@ -1,12 +1,13 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { GithubWorkflowRun, DeploymentStatus } from '../types';
-import { ExternalLinkIcon, CheckCircleIcon, XCircleIcon, ClockIcon, SpinnerIcon } from './icons';
+import { ExternalLinkIcon, CheckCircleIcon, XCircleIcon, ClockIcon, SpinnerIcon, ExclamationTriangleIcon, CopyIcon } from './icons';
 
 interface DeploymentsViewProps {
   runs: GithubWorkflowRun[];
   liveDeploymentUrl: string | null;
   deploymentStatus: DeploymentStatus;
   deploymentLogs: string | null;
+  error: string | null;
 }
 
 const Card: React.FC<{children: React.ReactNode, className?: string}> = ({ children, className }) => (
@@ -58,6 +59,103 @@ const getStatusInfo = (run: GithubWorkflowRun) => {
     }
     return { icon: <ClockIcon className="w-5 h-5 text-gray-500" />, text: "Queued" };
 };
+
+const workflowYaml = `name: Deploy from EdgeDeploy
+
+on:
+  repository_dispatch:
+    types: [deploy-from-app]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Use the branch that triggered the dispatch event
+          ref: \${{ github.event.client_payload.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+        env:
+          # Pass any necessary environment variables here
+          # For Next.js, you might need NEXT_PUBLIC_ variables
+          CI: true
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # Adjust this path to your framework's build output directory
+          # - Next.js: './out'
+          # - Create React App: './build'
+          # - Vite: './dist'
+          path: './out'
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: \${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+`;
+
+const WorkflowInstructions = () => {
+    const [copied, setCopied] = useState(false);
+    
+    const handleCopy = () => {
+        navigator.clipboard.writeText(workflowYaml.trim());
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    }
+
+    return (
+        <Card className="border-yellow-500/30 bg-yellow-500/5">
+            <CardHeader>
+                <ExclamationTriangleIcon className="w-6 h-6 text-yellow-500" />
+                <h2 className="text-xl font-semibold text-card-foreground">Action Required: Setup Deployment Workflow</h2>
+            </CardHeader>
+            <CardContent>
+                <p className="text-muted-foreground mb-4">
+                    To deploy this project, you need to add a GitHub Actions workflow file to its repository. This workflow will run automatically when you click the "Deploy" button here.
+                </p>
+                <p className="text-muted-foreground mb-4">
+                    Create a file named <code className="font-mono bg-muted px-1.5 py-1 rounded-md text-sm">.github/workflows/deploy.yml</code> in your repository and paste the following content into it.
+                </p>
+                <div className="bg-black/80 rounded-lg relative">
+                    <button onClick={handleCopy} className="absolute top-3 right-3 p-1.5 bg-white/10 rounded-md text-gray-300 hover:bg-white/20 transition-colors" aria-label="Copy workflow code">
+                        {copied ? <CheckCircleIcon className="w-4 h-4 text-green-400" /> : <CopyIcon className="w-4 h-4" />}
+                    </button>
+                    <pre className="p-4 text-sm text-gray-300 overflow-auto font-mono text-xs">
+                        <code>{workflowYaml.trim()}</code>
+                    </pre>
+                </div>
+                 <p className="text-xs text-muted-foreground mt-4">
+                    <strong>Note:</strong> You may need to adjust the <code className="font-mono bg-muted px-1 py-0.5 rounded">'path'</code> in the "Upload artifact" step to match your project's build output directory. You may also need to <a href="https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site#configuring-a-publishing-source-for-your-site" target="_blank" rel="noopener noreferrer" className="text-primary underline">enable GitHub Pages</a> in your repository settings and set the source to "GitHub Actions".
+                 </p>
+            </CardContent>
+        </Card>
+    )
+}
+
 
 const LiveTerminal: React.FC<{ logs: string }> = ({ logs }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
@@ -113,7 +211,8 @@ export const DeploymentsView: React.FC<DeploymentsViewProps> = ({
   runs,
   liveDeploymentUrl,
   deploymentStatus,
-  deploymentLogs
+  deploymentLogs,
+  error
 }) => {
   
   const isDeploying = deploymentStatus === DeploymentStatus.IN_PROGRESS || deploymentStatus === DeploymentStatus.TRIGGERED;
@@ -121,6 +220,8 @@ export const DeploymentsView: React.FC<DeploymentsViewProps> = ({
 
   return (
     <div className="space-y-6">
+        {error === "NO_WORKFLOW_DETECTED" && <WorkflowInstructions />}
+
         {isDeploying && <LiveDeploymentProgress logs={deploymentLogs} />}
 
         <Card>
