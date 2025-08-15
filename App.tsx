@@ -313,7 +313,7 @@ const App: React.FC = () => {
     const [workflowRuns, setWorkflowRuns] = useState<GithubWorkflowRun[]>([]);
     const [deploymentLogs, setDeploymentLogs] = useState<string | null>(null);
     const [liveDeploymentUrl, setLiveDeploymentUrl] = useState<string | null>(null);
-    const [deploymentTriggerTime, setDeploymentTriggerTime] = useState<Date | null>(null);
+    const [lastKnownRunId, setLastKnownRunId] = useState<number | null>(null);
 
     const deploymentPollTimer = useRef<number | null>(null);
     const pollAttempts = useRef(0);
@@ -516,7 +516,7 @@ const App: React.FC = () => {
     }, []);
 
     const pollDeploymentStatus = useCallback(async () => {
-        if (!githubToken || !owner || !repo || !selectedBranch || !deploymentTriggerTime) return;
+        if (!githubToken || !owner || !repo || !selectedBranch || deploymentStatus === DeploymentStatus.IDLE) return;
 
         pollAttempts.current += 1;
 
@@ -525,7 +525,7 @@ const App: React.FC = () => {
             setDeploymentStatus(DeploymentStatus.FAILED);
             setDeploymentLogs(prev => (prev || '') + "\n\nError: Deployment timed out after 5 minutes.");
             setError("Deployment timed out.");
-            setDeploymentTriggerTime(null);
+            setLastKnownRunId(null);
             return;
         }
 
@@ -533,7 +533,9 @@ const App: React.FC = () => {
             const { workflow_runs } = await getWorkflowRuns(githubToken, owner, repo, selectedBranch);
             setWorkflowRuns(workflow_runs);
 
-            const relevantRun = workflow_runs.find(run => new Date(run.created_at) >= deploymentTriggerTime);
+            // Find the first run that is newer than the last known run.
+            // The API returns runs newest first.
+            const relevantRun = workflow_runs.find(run => lastKnownRunId === null || run.id > lastKnownRunId);
             
             if (relevantRun) {
                 if (relevantRun.status === 'in_progress' || relevantRun.status === 'queued') {
@@ -544,6 +546,8 @@ const App: React.FC = () => {
                         if (buildJob) {
                             const logs = await getJobLogs(githubToken, owner, repo, buildJob.id);
                             setDeploymentLogs(logs);
+                        } else {
+                            setDeploymentLogs(prev => prev || "Workflow job is queued. Waiting for logs...");
                         }
                     } catch (logError) {
                         console.error("Could not fetch job logs:", logError);
@@ -553,7 +557,7 @@ const App: React.FC = () => {
                     cleanupPolling();
                     setDeploymentStatus(DeploymentStatus.IDLE);
                     setDeploymentLogs(null);
-                    setDeploymentTriggerTime(null);
+                    setLastKnownRunId(null);
                     
                     if (relevantRun.conclusion === 'success') {
                         // Wait a moment for deployment to register, then fetch URL
@@ -566,7 +570,7 @@ const App: React.FC = () => {
             } else if (pollAttempts.current > 4) { // Timeout after ~20s if no workflow detected
                 cleanupPolling();
                 setDeploymentStatus(DeploymentStatus.FAILED);
-                setDeploymentTriggerTime(null);
+                setLastKnownRunId(null);
                 setError("NO_WORKFLOW_DETECTED"); // Special error code
             }
         } catch (err) {
@@ -574,9 +578,9 @@ const App: React.FC = () => {
             setDeploymentStatus(DeploymentStatus.FAILED);
             setDeploymentLogs(null);
             cleanupPolling();
-            setDeploymentTriggerTime(null);
+            setLastKnownRunId(null);
         }
-    }, [githubToken, owner, repo, selectedBranch, deploymentTriggerTime]);
+    }, [githubToken, owner, repo, selectedBranch, lastKnownRunId, deploymentStatus]);
 
 
     const handleDeployTemplate = async (templateOwner: string, templateRepo: string) => {
@@ -615,17 +619,25 @@ const App: React.FC = () => {
         setDeploymentStatus(DeploymentStatus.TRIGGERED);
         setDeploymentLogs("Triggering deployment workflow...");
         setCurrentView(View.DEPLOYMENTS);
-        setDeploymentTriggerTime(new Date());
         pollAttempts.current = 0;
 
         try {
+            // Get the latest run ID before triggering a new one
+            const { workflow_runs } = await getWorkflowRuns(githubToken, owner, repo, selectedBranch);
+            if (workflow_runs.length > 0) {
+                // Runs are sorted newest first by the API by default
+                setLastKnownRunId(workflow_runs[0].id);
+            } else {
+                setLastKnownRunId(null);
+            }
+
             await triggerDeployment(githubToken, owner, repo, selectedBranch);
             setTimeout(() => pollDeploymentStatus(), 2000); // Poll after 2s to allow run to be created
             deploymentPollTimer.current = window.setInterval(pollDeploymentStatus, 5000);
         } catch(err) {
              setError(err instanceof Error ? err.message : "Unknown error");
              setDeploymentStatus(DeploymentStatus.FAILED);
-             setDeploymentTriggerTime(null);
+             setLastKnownRunId(null);
         }
     };
 

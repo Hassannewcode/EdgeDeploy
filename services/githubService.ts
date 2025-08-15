@@ -68,7 +68,7 @@ export const triggerDeployment = async (token: string, owner: string, repo: stri
 };
 
 export const getWorkflowRuns = async (token: string, owner: string, repo: string, branch: string): Promise<{ workflow_runs: GithubWorkflowRun[] }> => {
-    const response = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}/actions/runs?branch=${branch}&event=repository_dispatch`, { headers: getHeaders(token) });
+    const response = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}/actions/runs?branch=${branch}&event=repository_dispatch&per_page=20`, { headers: getHeaders(token) });
     return handleResponse(response);
 }
 
