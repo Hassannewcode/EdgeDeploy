@@ -226,9 +226,9 @@ export const DeploymentsView: React.FC<DeploymentsViewProps> = ({
 
         <Card>
             <CardHeader actions={
-                latestSuccessfulRun && liveDeploymentUrl && (
+                liveDeploymentUrl && (
                     <a href={liveDeploymentUrl} target="_blank" rel="noopener noreferrer" className="bg-primary text-primary-foreground hover:opacity-90 text-sm font-semibold px-4 py-2 rounded-md transition-colors flex items-center gap-1.5">
-                        Visit Preview <ExternalLinkIcon className="w-4 h-4" />
+                        Visit Site <ExternalLinkIcon className="w-4 h-4" />
                     </a>
                 )
             }>
@@ -236,24 +236,31 @@ export const DeploymentsView: React.FC<DeploymentsViewProps> = ({
             </CardHeader>
             <CardContent>
                 {latestSuccessfulRun ? (
-                    <div className="flex items-center gap-3">
-                        {getStatusInfo(latestSuccessfulRun).icon}
-                        <div>
-                            <p className="font-semibold text-card-foreground">
-                                Deployed successfully {timeAgo(latestSuccessfulRun.created_at)}
-                            </p>
-                            <a href={latestSuccessfulRun.html_url} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground transition-colors text-xs font-mono flex items-center gap-1.5">
-                                View Commit on GitHub <ExternalLinkIcon className="w-3 h-3" />
-                            </a>
+                    liveDeploymentUrl ? (
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <a href={liveDeploymentUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-card-foreground hover:underline break-all">
+                                    {liveDeploymentUrl.replace('https://', '').replace(/\/$/, '')}
+                                </a>
+                                <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
+                                    <CheckCircleIcon className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                                    <span>Deployed {timeAgo(latestSuccessfulRun.created_at)}</span>
+                                    <span className="text-muted-foreground/50">|</span>
+                                    <span>from <a href={latestSuccessfulRun.html_url} target="_blank" rel="noopener noreferrer" className="hover:underline font-mono">{latestSuccessfulRun.head_sha.substring(0,7)}</a></span>
+                                </div>
+                            </div>
                         </div>
-                    </div>
+                    ) : (
+                        <div className="flex items-center gap-3">
+                            <ExclamationTriangleIcon className="w-5 h-5 text-yellow-500 flex-shrink-0" />
+                            <div>
+                                <p className="font-semibold text-card-foreground">Deployment URL Not Available</p>
+                                <p className="text-muted-foreground text-xs">The last deployment succeeded, but we couldn't retrieve the live URL. It may still be propagating.</p>
+                            </div>
+                        </div>
+                    )
                 ) : (
-                    <p className="text-muted-foreground">No successful deployment for this branch yet. Trigger a deployment to create a preview.</p>
-                )}
-                 {latestSuccessfulRun && !liveDeploymentUrl && (
-                    <div className="mt-4 text-sm text-yellow-500 bg-yellow-500/10 p-3 rounded-md border border-yellow-500/20">
-                        <strong>Preview Not Available:</strong> This app can only generate instant previews for projects with a single <code className="font-mono text-xs">index.html</code> file at the root. For complex frameworks like Next.js, ensure your GitHub Actions workflow builds and deploys to a dedicated hosting provider.
-                    </div>
+                    <p className="text-muted-foreground">No successful deployment for this branch yet. Trigger a deployment to get a live URL.</p>
                 )}
             </CardContent>
         </Card>

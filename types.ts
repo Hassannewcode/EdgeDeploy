@@ -65,6 +65,7 @@ export interface GithubRepo {
 
 export interface GithubWorkflowRun {
     id: number;
+    head_sha: string;
     status: 'queued' | 'in_progress' | 'completed';
     conclusion: 'success' | 'failure' | 'neutral' | 'cancelled' | 'skipped' | 'timed_out' | 'action_required' | null;
     html_url: string;
@@ -91,4 +92,19 @@ export enum SystemStatus {
   DEGRADED = 'Degraded Performance',
   OUTAGE = 'Major Outage',
   CHECKING = 'Checking...',
+}
+
+export interface GithubDeployment {
+    id: number;
+    sha: string;
+    environment: string;
+    statuses_url: string;
+    created_at: string;
+}
+
+export interface GithubDeploymentStatus {
+    id: number;
+    state: 'error' | 'failure' | 'inactive' | 'in_progress' | 'queued' | 'pending' | 'success';
+    environment_url: string;
+    log_url: string;
 }

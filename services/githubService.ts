@@ -1,4 +1,4 @@
-import type { GithubBranch, GithubTreeItem, GithubFileContent, GithubUser, GithubRepo, GithubWorkflowRun, GithubWorkflowJob } from '../types';
+import type { GithubBranch, GithubTreeItem, GithubFileContent, GithubUser, GithubRepo, GithubWorkflowRun, GithubWorkflowJob, GithubDeployment, GithubDeploymentStatus } from '../types';
 
 const GITHUB_API_BASE = 'https://api.github.com';
 
@@ -98,3 +98,28 @@ export const forkRepo = async (token: string, owner: string, repo: string): Prom
     // The fork API returns 202 Accepted with the new repo object in the body.
     return handleResponse<GithubRepo>(response);
 };
+
+export const getLatestSuccessDeploymentUrl = async (token: string, owner: string, repo: string, sha: string): Promise<string | null> => {
+    try {
+        const deploymentResponse = await fetch(`${GITHUB_API_BASE}/repos/${owner}/${repo}/deployments?sha=${sha}&environment=github-pages`, { headers: getHeaders(token) });
+        // Fail gracefully if no deployments found, might be a timing issue
+        if (deploymentResponse.status !== 200) return null;
+        const deployments = await handleResponse<GithubDeployment[]>(deploymentResponse);
+        
+        if (!deployments || deployments.length === 0) return null;
+
+        // Sort by creation date to get the most recent one for this commit
+        deployments.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        const latestDeployment = deployments[0];
+
+        const statusResponse = await fetch(latestDeployment.statuses_url, { headers: getHeaders(token) });
+        if (statusResponse.status !== 200) return null;
+        const statuses = await handleResponse<GithubDeploymentStatus[]>(statusResponse);
+
+        const successStatus = statuses.find(s => s.state === 'success');
+        return successStatus?.environment_url || null;
+    } catch (error) {
+        console.error("Error fetching deployment URL:", error);
+        return null; // Return null on any error to not break the UI
+    }
+}

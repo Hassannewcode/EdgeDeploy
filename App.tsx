@@ -10,6 +10,7 @@ import {
     getWorkflowJobs,
     getJobLogs,
     forkRepo,
+    getLatestSuccessDeploymentUrl,
 } from './services/githubService';
 import { explainCode } from './services/geminiService';
 import type { GithubBranch, GithubTreeItem, GithubUser, GithubRepo, GithubWorkflowRun } from './types';
@@ -459,14 +460,10 @@ const App: React.FC = () => {
 
             const latestSuccess = runsData.workflow_runs.find(r => r.conclusion === 'success');
             if (latestSuccess) {
-                try {
-                    const htmlContent = await fetchFileContent(githubToken, owner, repo, 'index.html', branchName);
-                    const encodedContent = btoa(htmlContent);
-                    const dataUrl = `data:text/html;base64,${encodedContent}`;
-                    setLiveDeploymentUrl(dataUrl);
-                } catch (e) {
-                    setLiveDeploymentUrl(null);
-                }
+                const url = await getLatestSuccessDeploymentUrl(githubToken, owner, repo, latestSuccess.head_sha);
+                setLiveDeploymentUrl(url);
+            } else {
+                setLiveDeploymentUrl(null);
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to fetch project data.");
@@ -523,6 +520,15 @@ const App: React.FC = () => {
 
         pollAttempts.current += 1;
 
+        if (pollAttempts.current > 60) { // Timeout after 5 mins (60 attempts * 5s)
+            cleanupPolling();
+            setDeploymentStatus(DeploymentStatus.FAILED);
+            setDeploymentLogs(prev => (prev || '') + "\n\nError: Deployment timed out after 5 minutes.");
+            setError("Deployment timed out.");
+            setDeploymentTriggerTime(null);
+            return;
+        }
+
         try {
             const { workflow_runs } = await getWorkflowRuns(githubToken, owner, repo, selectedBranch);
             setWorkflowRuns(workflow_runs);
@@ -530,7 +536,6 @@ const App: React.FC = () => {
             const relevantRun = workflow_runs.find(run => new Date(run.created_at) >= deploymentTriggerTime);
             
             if (relevantRun) {
-                pollAttempts.current = 0; // Reset counter
                 if (relevantRun.status === 'in_progress' || relevantRun.status === 'queued') {
                     setDeploymentStatus(DeploymentStatus.IN_PROGRESS);
                     try {
@@ -551,17 +556,14 @@ const App: React.FC = () => {
                     setDeploymentTriggerTime(null);
                     
                     if (relevantRun.conclusion === 'success') {
-                        try {
-                            const htmlContent = await fetchFileContent(githubToken, owner, repo, 'index.html', selectedBranch);
-                            const encodedContent = btoa(htmlContent);
-                            const dataUrl = `data:text/html;base64,${encodedContent}`;
-                            setLiveDeploymentUrl(dataUrl);
-                        } catch (e) {
-                            setLiveDeploymentUrl(null); // This is fine, preview is optional
-                        }
+                        // Wait a moment for deployment to register, then fetch URL
+                        setTimeout(async () => {
+                             const url = await getLatestSuccessDeploymentUrl(githubToken, owner, repo, relevantRun.head_sha);
+                             setLiveDeploymentUrl(url);
+                        }, 2000); // 2s delay
                     }
                 }
-            } else if (pollAttempts.current > 4) { // Timeout after ~20s
+            } else if (pollAttempts.current > 4) { // Timeout after ~20s if no workflow detected
                 cleanupPolling();
                 setDeploymentStatus(DeploymentStatus.FAILED);
                 setDeploymentTriggerTime(null);
