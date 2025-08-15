@@ -1,0 +1,5 @@
+{
+  "name": "EdgeDeploy Dashboard",
+  "description": "A Vercel-inspired dashboard to manage and deploy your GitHub projects. Features a file explorer, AI code analysis, deployment previews, and light/dark modes.",
+  "requestFramePermissions": []
+}
